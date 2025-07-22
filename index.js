@@ -7,37 +7,47 @@ app.use(express.json());
 
 const keys = {
   "ABC123": {
-    HWID: "hwid-456",
-    UserIds: ["12345678", "87654321"],
-    createdAt: Date.now()
-  }
+    hwid: "hwid-456",
+    userIds: ["87654321"],
+    createdAt: Date.now(),
+    duration: 86400,
+    blacklisted: false
+  },
 };
 
 app.post("/verify", (req, res) => {
-  console.log("Received:", req.body);
-
   const { key, hwid, userid } = req.body;
 
-  const data = keys[key];
-  if (!data) return res.status(403).json({ authorized: false, reason: "Invalid key" });
+  const keyData = keys[key];
+  if (!keyData) return res.json({ authorized: false, reason: "invalid key" });
 
+  if (keyData.blacklisted) {
+    return res.json({ authorized: false, reason: "blacklisted" });
+  }
+
+  const expiresAt = keyData.createdAt + keyData.duration * 1000;
   const now = Date.now();
-  const durationMs = 86400000;
-
-  if (now - data.createdAt > durationMs) {
-    return res.status(403).json({ authorized: false, reason: "Key expired" });
+  if (now > expiresAt) {
+    return res.json({ authorized: false, reason: "expired" });
   }
 
-  if (data.HWID !== hwid) {
-    return res.status(403).json({ authorized: false, reason: "HWID mismatch" });
+  const hwidMatch = keyData.hwid === hwid;
+  const userIdMatch = keyData.userIds.includes(userid);
+
+  if (hwidMatch && userIdMatch) {
+    const timeLeft = Math.floor((expiresAt - now) / 1000);
+    return res.json({
+      authorized: true,
+      expiresIn: timeLeft
+    });
   }
 
-  if (!data.UserIds.includes(userid)) {
-    return res.status(403).json({ authorized: false, reason: "UserId mismatch" });
-  }
-
-  return res.json({ authorized: true });
+  return res.json({
+    authorized: false,
+    reason: "hwid or userid mismatch"
+  });
 });
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
